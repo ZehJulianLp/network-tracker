@@ -66,4 +66,4 @@ Project structure:
 
 ## License
 
-Private / internal use.
+MIT. See `LICENSE`.
