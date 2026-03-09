@@ -7,6 +7,23 @@
 
   const notify = () => listeners.forEach((fn) => fn());
 
+  const normalizeCustomType = (value) => (value || "").trim().replace(/\s+/g, " ");
+
+  const edgePairKey = (edge) => {
+    const [a, b] = [edge.fromId, edge.toId].sort();
+    const type = edge.type || "knows";
+    const custom = normalizeCustomType(edge.customType).toLowerCase();
+    return `${a}::${b}::${type}::${custom}`;
+  };
+
+  const collectEdgeTypeSuggestions = (edges, existing = []) => {
+    const fromEdges = edges
+      .filter((edge) => edge.type === "other")
+      .map((edge) => normalizeCustomType(edge.customType))
+      .filter(Boolean);
+    return Utils.distinct([...(existing || []), ...fromEdges]).sort((a, b) => a.localeCompare(b));
+  };
+
   const ensureSelfContact = () => {
     const existing = data.contacts.find((c) => c?.meta?.isSelf);
     if (existing) return;
@@ -74,6 +91,17 @@
     notify();
   };
 
+  const sanitizeEdgePayload = (payload) => {
+    const type = payload.type || "knows";
+    return {
+      fromId: payload.fromId,
+      toId: payload.toId,
+      type,
+      strength: payload.strength || "normal",
+      customType: type === "other" ? normalizeCustomType(payload.customType) : "",
+    };
+  };
+
   const addContact = (payload) => {
     const now = Utils.nowIso();
     const contact = {
@@ -137,25 +165,32 @@
 
   const addEdge = (payload) => {
     const now = Utils.nowIso();
+    const normalized = sanitizeEdgePayload(payload);
     const edgeA = {
       id: Utils.uid("e"),
-      fromId: payload.fromId,
-      toId: payload.toId,
-      type: payload.type || "knows",
-      strength: payload.strength || "normal",
+      fromId: normalized.fromId,
+      toId: normalized.toId,
+      type: normalized.type,
+      strength: normalized.strength,
+      customType: normalized.customType,
       createdAt: now,
     };
     const edgeB = {
       id: Utils.uid("e"),
-      fromId: payload.toId,
-      toId: payload.fromId,
-      type: payload.type || "knows",
-      strength: payload.strength || "normal",
+      fromId: normalized.toId,
+      toId: normalized.fromId,
+      type: normalized.type,
+      strength: normalized.strength,
+      customType: normalized.customType,
       createdAt: now,
     };
     data = {
       ...data,
       edges: [edgeA, edgeB, ...data.edges],
+      edgeTypeSuggestions: collectEdgeTypeSuggestions(
+        [edgeA, edgeB, ...data.edges],
+        data.edgeTypeSuggestions
+      ),
     };
     saveAll();
     notify();
@@ -165,25 +200,70 @@
   const deleteEdge = (id) => {
     const target = data.edges.find((edge) => edge.id === id);
     if (!target) return;
+    const targetKey = edgePairKey(target);
+    const nextEdges = data.edges.filter((edge) => edgePairKey(edge) !== targetKey);
     data = {
       ...data,
-      edges: data.edges.filter(
-        (edge) =>
-          !(
-            edge.type === target.type &&
-            ((edge.fromId === target.fromId && edge.toId === target.toId) ||
-              (edge.fromId === target.toId && edge.toId === target.fromId))
-          )
-      ),
+      edges: nextEdges,
+      edgeTypeSuggestions: collectEdgeTypeSuggestions(nextEdges, data.edgeTypeSuggestions),
     };
     saveAll();
     notify();
   };
 
+  const updateEdge = (id, patch) => {
+    const target = data.edges.find((edge) => edge.id === id);
+    if (!target) return false;
+
+    const normalized = sanitizeEdgePayload({
+      ...target,
+      ...patch,
+    });
+    const oldKey = edgePairKey(target);
+
+    const conflict = data.edges.some((edge) => {
+      if (edgePairKey(edge) === oldKey) return false;
+      return edgePairKey(edge) === edgePairKey(normalized);
+    });
+    if (conflict) {
+      return false;
+    }
+
+    const updatedEdges = data.edges.map((edge) => {
+      if (edgePairKey(edge) !== oldKey) return edge;
+      const sameDirection = edge.fromId === target.fromId && edge.toId === target.toId;
+      const nextFrom = sameDirection ? normalized.fromId : normalized.toId;
+      const nextTo = sameDirection ? normalized.toId : normalized.fromId;
+      return {
+        ...edge,
+        fromId: nextFrom,
+        toId: nextTo,
+        type: normalized.type,
+        strength: normalized.strength,
+        customType: normalized.customType,
+      };
+    });
+
+    data = {
+      ...data,
+      edges: updatedEdges,
+      edgeTypeSuggestions: collectEdgeTypeSuggestions(updatedEdges, data.edgeTypeSuggestions),
+    };
+    saveAll();
+    notify();
+    return true;
+  };
+
   const replaceData = (nextData) => {
+    const nextEdges = nextData.edges || data.edges || [];
     data = {
       ...data,
       ...nextData,
+      edges: nextEdges,
+      edgeTypeSuggestions: collectEdgeTypeSuggestions(
+        nextEdges,
+        nextData.edgeTypeSuggestions || data.edgeTypeSuggestions
+      ),
     };
     ensureSelfContact();
     saveAll();
@@ -208,6 +288,7 @@
     deleteContact,
     addEdge,
     deleteEdge,
+    updateEdge,
     replaceData,
   };
 })();

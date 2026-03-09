@@ -7,6 +7,7 @@
       contacts: data.contacts,
       edges: data.edges,
       tags: data.tags,
+      edgeTypeSuggestions: data.edgeTypeSuggestions || [],
     },
   });
 
@@ -60,7 +61,8 @@
     }
 
     const mergedEdges = [...current.edges];
-    const edgeKey = (edge) => `${edge.fromId}::${edge.toId}::${edge.type}`;
+    const edgeKey = (edge) =>
+      `${edge.fromId}::${edge.toId}::${edge.type || "knows"}::${(edge.customType || "").trim().toLowerCase()}`;
     const edgeIndex = new Set(mergedEdges.map(edgeKey));
     for (const edge of incoming.edges) {
       const key = edgeKey(edge);
@@ -71,12 +73,21 @@
     }
 
     const mergedTags = Utils.distinct([...(current.tags || []), ...(incoming.tags || [])]);
+    const mergedEdgeTypeSuggestions = Utils.distinct([
+      ...(current.edgeTypeSuggestions || []),
+      ...(incoming.edgeTypeSuggestions || []),
+      ...mergedEdges
+        .filter((edge) => edge.type === "other")
+        .map((edge) => edge.customType?.trim())
+        .filter(Boolean),
+    ]).sort((a, b) => a.localeCompare(b));
 
     return {
       ...current,
       contacts: mergedContacts,
       edges: mergedEdges,
       tags: mergedTags,
+      edgeTypeSuggestions: mergedEdgeTypeSuggestions,
     };
   };
 
@@ -85,6 +96,7 @@
       contacts: wrapper.data.contacts || [],
       edges: wrapper.data.edges || [],
       tags: wrapper.data.tags || [],
+      edgeTypeSuggestions: wrapper.data.edgeTypeSuggestions || [],
     };
 
     if (mode === "replace") {
@@ -93,6 +105,13 @@
         contacts: incoming.contacts,
         edges: incoming.edges,
         tags: incoming.tags,
+        edgeTypeSuggestions: Utils.distinct([
+          ...(incoming.edgeTypeSuggestions || []),
+          ...incoming.edges
+            .filter((edge) => edge.type === "other")
+            .map((edge) => edge.customType?.trim())
+            .filter(Boolean),
+        ]).sort((a, b) => a.localeCompare(b)),
       };
     }
 

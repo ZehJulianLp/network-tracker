@@ -35,6 +35,7 @@
 
   const validateEdge = (edge, contactsById) => {
     const errors = [];
+    const customType = edge.customType?.trim() || "";
     if (!edge.fromId || !contactsById[edge.fromId]) {
       errors.push("fromId missing or unknown");
     }
@@ -46,6 +47,12 @@
     }
     if (edge.type && !edgeTypes.includes(edge.type)) {
       errors.push("invalid edge type");
+    }
+    if (edge.type === "other" && !customType) {
+      errors.push("customType required for type other");
+    }
+    if (customType.length > 40) {
+      errors.push("customType too long (max 40)");
     }
     if (edge.strength && !edgeStrengths.includes(edge.strength)) {
       errors.push("invalid edge strength");

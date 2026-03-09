@@ -322,6 +322,20 @@ body {
   align-items: center;
 }
 
+.search-form {
+  display: flex;
+  gap: 8px;
+  flex: 1 1 380px;
+}
+
+.search-form .input {
+  min-width: 220px;
+}
+
+.search-form .btn {
+  white-space: nowrap;
+}
+
 .input, select, textarea {
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid var(--outline);
@@ -357,6 +371,35 @@ textarea {
 .table th {
   color: var(--muted);
   font-weight: 600;
+}
+
+.color-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.color-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--outline);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.color-row span {
+  overflow-wrap: anywhere;
+}
+
+.color-row input[type="color"] {
+  width: 50px;
+  height: 32px;
+  border: 1px solid var(--outline);
+  border-radius: 8px;
+  padding: 0;
+  background: transparent;
 }
 
 .graph-wrap {

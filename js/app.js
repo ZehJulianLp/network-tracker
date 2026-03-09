@@ -4,6 +4,71 @@
   const toastRoot = document.getElementById("toast-root");
 
   const levelOrder = { L1: 1, L2: 2, L3: 3, L4: 4 };
+  const levelLabel = {
+    L1: "Very close",
+    L2: "Friendly",
+    L3: "Known",
+    L4: "Distant",
+  };
+  const defaultEdgeTypeColors = {
+    knows: "#9aa6b2",
+    met: "#7ab6ff",
+    worksWith: "#3dd6a6",
+    family: "#ff7a59",
+    other: "#c68bff",
+  };
+
+  const normalizeEdgeCustomType = (value) => (value || "").trim().replace(/\s+/g, " ");
+
+  const edgeTypeLabel = (edge) => {
+    if (edge.type !== "other") return edge.type;
+    return normalizeEdgeCustomType(edge.customType) || "other";
+  };
+
+  const edgeTypeKey = (type, customType) =>
+    type === "other" ? `other:${normalizeEdgeCustomType(customType).toLowerCase()}` : type;
+
+  const edgeColor = (settings, edge) => {
+    const palette = settings?.ui?.edgeTypeColors || {};
+    const key = edgeTypeKey(edge.type, edge.customType);
+    const fallback = edge.type === "other" ? palette.other || defaultEdgeTypeColors.other : defaultEdgeTypeColors.knows;
+    return palette[key] || palette[edge.type] || defaultEdgeTypeColors[edge.type] || fallback;
+  };
+
+  const edgeStrengthWidth = (strength) => {
+    if (strength === "strong") return 2.8;
+    if (strength === "weak") return 1.1;
+    return 1.9;
+  };
+
+  const edgeStrengthAlpha = (strength) => {
+    if (strength === "strong") return 0.82;
+    if (strength === "weak") return 0.32;
+    return 0.56;
+  };
+
+  const edgeTargetDistance = (strength) => {
+    if (strength === "strong") return 72;
+    if (strength === "weak") return 188;
+    return 124;
+  };
+
+  const toRgba = (color, alpha) => {
+    if (typeof color !== "string") return `rgba(154, 166, 178, ${alpha})`;
+    if (color.startsWith("#")) {
+      const hex = color.slice(1);
+      const bytes =
+        hex.length === 3
+          ? hex.split("").map((v) => parseInt(v + v, 16))
+          : [hex.slice(0, 2), hex.slice(2, 4), hex.slice(4, 6)].map((v) => parseInt(v, 16));
+      if (bytes.some(Number.isNaN)) return `rgba(154, 166, 178, ${alpha})`;
+      return `rgba(${bytes[0]}, ${bytes[1]}, ${bytes[2]}, ${alpha})`;
+    }
+    if (color.startsWith("rgb(")) {
+      return color.replace("rgb(", "rgba(").replace(")", `, ${alpha})`);
+    }
+    return color;
+  };
 
   const showToast = (message) => {
     const toast = document.createElement("div");
@@ -113,19 +178,19 @@
           </div>
           <div class="kpi">
             <div class="value">${stats.counts.L1}</div>
-            <div class="label">Level L1</div>
+            <div class="label">L1 · ${levelLabel.L1}</div>
           </div>
           <div class="kpi">
             <div class="value">${stats.counts.L2}</div>
-            <div class="label">Level L2</div>
+            <div class="label">L2 · ${levelLabel.L2}</div>
           </div>
           <div class="kpi">
             <div class="value">${stats.counts.L3}</div>
-            <div class="label">Level L3</div>
+            <div class="label">L3 · ${levelLabel.L3}</div>
           </div>
           <div class="kpi">
             <div class="value">${stats.counts.L4}</div>
-            <div class="label">Level L4</div>
+            <div class="label">L4 · ${levelLabel.L4}</div>
           </div>
         </div>
       </section>
@@ -160,6 +225,7 @@
     const filtered = filterContacts(state.data.contacts, settings);
     const sorted = sortContacts(filtered, settings.sort);
     const allTags = Utils.distinct(state.data.tags || []).sort((a, b) => a.localeCompare(b));
+    const searchDraft = settings.searchDraft ?? settings.search ?? "";
 
     return `
       <section class="section">
@@ -168,8 +234,11 @@
           <button class="btn" data-action="new-contact">New Contact</button>
         </div>
         <div class="toolbar">
-          <input id="contact-search" class="input" type="search" placeholder="Search name, handle, note, tag" value="${settings.search || ""}" />
-          <select id="sort-by">
+          <form id="contact-search-form" class="search-form">
+            <input id="contact-search" class="input" type="search" placeholder="Search name, handle, note, tag" value="${searchDraft}" />
+            <button class="btn ghost" type="submit">Apply</button>
+          </form>
+          <select id="sort-by" style="max-width: 220px;">
             <option value="name" ${settings.sort === "name" ? "selected" : ""}>Sort: Name</option>
             <option value="updated" ${settings.sort === "updated" ? "selected" : ""}>Sort: Updated</option>
             <option value="level" ${settings.sort === "level" ? "selected" : ""}>Sort: Level</option>
@@ -230,7 +299,9 @@
   };
 
   const dedupeEdges = (edges) => {
-    const key = (edge) => [edge.fromId, edge.toId].sort().join("::") + `::${edge.type || "knows"}`;
+    const key = (edge) =>
+      [edge.fromId, edge.toId].sort().join("::") +
+      `::${edge.type || "knows"}::${normalizeEdgeCustomType(edge.customType).toLowerCase()}`;
     const seen = new Set();
     return edges.filter((edge) => {
       const k = key(edge);
@@ -285,10 +356,13 @@
               <tr>
                 <td>${contactsById[edge.fromId]?.displayName || "Unknown"}</td>
                 <td>${contactsById[edge.toId]?.displayName || "Unknown"}</td>
-                <td>${edge.type}</td>
+                <td>${edgeTypeLabel(edge)}</td>
                 <td>${edge.strength}</td>
                 <td>${Utils.formatDate(edge.createdAt)}</td>
-                <td><button class="btn ghost" data-action="delete-edge" data-id="${edge.id}">Remove</button></td>
+                <td class="actions">
+                  <button class="btn ghost" data-action="edit-edge" data-id="${edge.id}">Edit</button>
+                  <button class="btn ghost" data-action="delete-edge" data-id="${edge.id}">Remove</button>
+                </td>
               </tr>
             `
               )
@@ -302,6 +376,43 @@
         </table>
       </section>
     `;
+  };
+
+  const renderEdgeColorRows = (state) => {
+    const palette = state.settings.ui?.edgeTypeColors || {};
+    const customTypes = Utils.distinct([
+      ...(state.data.edgeTypeSuggestions || []),
+      ...state.data.edges
+        .filter((edge) => edge.type === "other")
+        .map((edge) => normalizeEdgeCustomType(edge.customType))
+        .filter(Boolean),
+    ]).sort((a, b) => a.localeCompare(b));
+    const knownTypes = ["knows", "met", "worksWith", "family", "other"];
+    const knownRows = knownTypes
+      .map((type) => {
+        const color = palette[type] || defaultEdgeTypeColors[type] || defaultEdgeTypeColors.knows;
+        return `
+          <label class="color-row">
+            <span>${type}</span>
+            <input type="color" data-action="edge-color" data-key="${type}" value="${color}" />
+          </label>
+        `;
+      })
+      .join("");
+    const customRows = customTypes
+      .map((type) => {
+        const key = edgeTypeKey("other", type);
+        const fallback = palette.other || defaultEdgeTypeColors.other;
+        const color = palette[key] || fallback;
+        return `
+          <label class="color-row">
+            <span>other: ${type}</span>
+            <input type="color" data-action="edge-color" data-key="${key}" value="${color}" />
+          </label>
+        `;
+      })
+      .join("");
+    return knownRows + (customRows || `<div class="muted">No custom "other" types yet.</div>`);
   };
 
   const renderSettings = (state) => {
@@ -335,6 +446,13 @@
         <textarea id="paste-json" class="input" placeholder="Paste exported JSON here"></textarea>
         <div class="actions" style="margin-top: 12px;">
           <button class="btn ghost" data-action="import-paste">Import Paste</button>
+        </div>
+      </section>
+      <section class="section">
+        <h2>Edge Colors</h2>
+        <p class="muted">Graph lines are colored by edge type. Customize mappings below.</p>
+        <div class="color-grid">
+          ${renderEdgeColorRows(state)}
         </div>
       </section>
       <section class="section">
@@ -421,15 +539,10 @@
       y: p.y * graphSim.view.scale + graphSim.view.offsetY,
     });
 
-    const edgeStyle = (strength) => {
-      if (strength === "strong") {
-        return { color: "rgba(255, 122, 89, 0.75)", width: 2.6 };
-      }
-      if (strength === "weak") {
-        return { color: "rgba(122, 182, 255, 0.25)", width: 0.9 };
-      }
-      return { color: "rgba(61, 214, 166, 0.35)", width: 1.6 };
-    };
+    const edgeStyle = (edge) => ({
+      color: toRgba(edgeColor(state.settings, edge), edgeStrengthAlpha(edge.strength)),
+      width: edgeStrengthWidth(edge.strength),
+    });
 
     const effectiveHover = graphHover;
 
@@ -443,7 +556,7 @@
         ctx.strokeStyle = "rgba(255, 122, 89, 0.95)";
         ctx.lineWidth = 3;
       } else {
-        const style = edgeStyle(edge.strength);
+        const style = edgeStyle(edge);
         ctx.strokeStyle = style.color;
         ctx.lineWidth = style.width;
       }
@@ -479,7 +592,25 @@
     ctx.textBaseline = "middle";
     const placed = [];
     const labelBoxes = new Map();
+    const denseGraph = contacts.length > 42;
+    const hoveredNodeId = effectiveHover?.type === "node" ? effectiveHover.id : null;
+    const drawRoundedRect = (x, y, w, h, r) => {
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.lineTo(x + w - r, y);
+      ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+      ctx.lineTo(x + w, y + h - r);
+      ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+      ctx.lineTo(x + r, y + h);
+      ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+      ctx.lineTo(x, y + r);
+      ctx.quadraticCurveTo(x, y, x + r, y);
+      ctx.closePath();
+    };
     contacts.forEach((contact) => {
+      if (denseGraph && !contact?.meta?.isSelf && hoveredNodeId !== contact.id) {
+        return;
+      }
       const pos = positions.get(contact.id);
       const screenPos = toScreen(pos);
       const label = contact.displayName.length > 18 ? `${contact.displayName.slice(0, 17)}…` : contact.displayName;
@@ -492,7 +623,13 @@
       const widthText = ctx.measureText(label).width + 6;
       const heightText = 16;
 
-      for (let attempt = 0; attempt < 4; attempt += 1) {
+      for (let attempt = 0; attempt < 10; attempt += 1) {
+        const spread = 10 + attempt * 6;
+        if (attempt > 0) {
+          const side = attempt % 2 === 0 ? 1 : -1;
+          x = screenPos.x + (baseOffset + spread) * dirX;
+          y = screenPos.y + (baseOffset + spread * 0.6) * dirY * side;
+        }
         const box = {
           x: dirX > 0 ? x : x - widthText,
           y: y - heightText / 2,
@@ -507,13 +644,17 @@
           labelBoxes.set(contact.id, box);
           break;
         }
-        x += 10 * dirX;
-        y += 10 * dirY;
       }
 
       const box = labelBoxes.get(contact.id) || { x: x, y: y - heightText / 2, w: widthText, h: heightText };
       const textX = box.x + 3;
       const textY = box.y + box.h / 2;
+      drawRoundedRect(box.x - 2, box.y - 1, box.w + 4, box.h + 2, 5);
+      ctx.fillStyle = "rgba(7, 9, 12, 0.72)";
+      ctx.fill();
+      ctx.strokeStyle = "rgba(255,255,255,0.08)";
+      ctx.lineWidth = 1;
+      ctx.stroke();
       ctx.strokeStyle = "rgba(8,10,14,0.8)";
       ctx.lineWidth = 4;
       ctx.strokeText(label, textX, textY);
@@ -560,9 +701,14 @@
     const state = Store.getState();
     if (state.view === "contacts") {
       const search = document.getElementById("contact-search");
-      if (search) {
-        search.addEventListener("input", (event) => {
-          Store.updateContactsView({ search: event.target.value });
+      const searchForm = document.getElementById("contact-search-form");
+      if (search && searchForm) {
+        searchForm.addEventListener("submit", (event) => {
+          event.preventDefault();
+          Store.updateContactsView({ search: search.value, searchDraft: search.value });
+        });
+        search.addEventListener("blur", () => {
+          Store.updateContactsView({ searchDraft: search.value });
         });
       }
       document.querySelectorAll(".level-filter").forEach((checkbox) => {
@@ -595,6 +741,22 @@
           Store.updateSettings({ importMode: importMode.value });
         });
       }
+      document.querySelectorAll("input[data-action=\"edge-color\"]").forEach((input) => {
+        input.addEventListener("change", () => {
+          const key = input.dataset.key;
+          const color = input.value;
+          const currentUi = Store.getState().settings.ui || {};
+          Store.updateSettings({
+            ui: {
+              ...currentUi,
+              edgeTypeColors: {
+                ...(currentUi.edgeTypeColors || {}),
+                [key]: color,
+              },
+            },
+          });
+        });
+      });
     }
   };
 
@@ -682,7 +844,7 @@
         const fromName = graphCache.contacts.find((c) => c.id === hoveredEdge.fromId)?.displayName || "Unknown";
         const toName = graphCache.contacts.find((c) => c.id === hoveredEdge.toId)?.displayName || "Unknown";
         updateTooltip(
-          `<strong>${fromName} ↔ ${toName}</strong><br/>Type: ${hoveredEdge.type}<br/>Strength: ${hoveredEdge.strength}`,
+          `<strong>${fromName} ↔ ${toName}</strong><br/>Type: ${edgeTypeLabel(hoveredEdge)}<br/>Strength: ${hoveredEdge.strength}`,
           point.x,
           point.y
         );
@@ -825,10 +987,15 @@
       }
       const dx = to.x - from.x;
       const dy = to.y - from.y;
-      from.vx += dx * spring;
-      from.vy += dy * spring;
-      to.vx -= dx * spring;
-      to.vy -= dy * spring;
+      const dist = Math.max(1, Math.hypot(dx, dy));
+      const desired = edgeTargetDistance(edge.strength);
+      const force = (dist - desired) * spring;
+      const nx = dx / dist;
+      const ny = dy / dist;
+      from.vx += nx * force;
+      from.vy += ny * force;
+      to.vx -= nx * force;
+      to.vy -= ny * force;
     });
 
     contacts.forEach((c) => {
@@ -937,7 +1104,7 @@
                   )
                   .join("")}
               </select>
-              <div class="modal-help">Closeness: L1 = very close, L4 = more distant.</div>
+              <div class="modal-help">L1 = ${levelLabel.L1}, L2 = ${levelLabel.L2}, L3 = ${levelLabel.L3}, L4 = ${levelLabel.L4}.</div>
             </label>
           </div>
         </div>
@@ -977,19 +1144,33 @@
     });
   };
 
-  const openEdgeModal = () => {
-    const contacts = Store.getState().data.contacts;
+  const openEdgeModal = (edgeToEdit = null) => {
+    const state = Store.getState();
+    const contacts = state.data.contacts;
     if (!contacts.length) {
       showToast("Add contacts first");
       return;
     }
+    const editing = Boolean(edgeToEdit);
     const selfContact = contacts.find((c) => c?.meta?.isSelf);
     const orderedContacts = selfContact
       ? [selfContact, ...contacts.filter((c) => c.id !== selfContact.id)]
       : contacts;
+    const customTypeSuggestions = Utils.distinct([
+      ...(state.data.edgeTypeSuggestions || []),
+      ...state.data.edges
+        .filter((edge) => edge.type === "other")
+        .map((edge) => normalizeEdgeCustomType(edge.customType))
+        .filter(Boolean),
+    ]).sort((a, b) => a.localeCompare(b));
+    const initialType = edgeToEdit?.type || "knows";
+    const initialCustomType = normalizeEdgeCustomType(edgeToEdit?.customType);
+    const initialStrength = edgeToEdit?.strength || "normal";
+    const initialFromId = edgeToEdit?.fromId || (selfContact?.id || orderedContacts[0]?.id);
+    const initialToId = edgeToEdit?.toId || orderedContacts[0]?.id;
 
     openModal(`
-      <h3>New Edge</h3>
+      <h3>${editing ? "Edit Edge" : "New Edge"}</h3>
       <form id="edge-form" class="modal-grid">
         <div class="modal-grid two">
           <label>
@@ -998,7 +1179,7 @@
               ${orderedContacts
                 .map(
                   (c) =>
-                    `<option value="${c.id}" ${c?.meta?.isSelf ? "selected" : ""}>${c.displayName}</option>`
+                    `<option value="${c.id}" ${c.id === initialFromId ? "selected" : ""}>${c.displayName}</option>`
                 )
                 .join("")}
             </select>
@@ -1006,47 +1187,72 @@
           <label>
             To
             <select name="toId" id="to-single">
-              ${orderedContacts.map((c) => `<option value="${c.id}">${c.displayName}</option>`).join("")}
+              ${orderedContacts
+                .map((c) => `<option value="${c.id}" ${c.id === initialToId ? "selected" : ""}>${c.displayName}</option>`)
+                .join("")}
             </select>
           </label>
         </div>
-        <label class="tag" style="width: fit-content;">
-          <input type="checkbox" id="edge-batch" /> Create multiple edges
-        </label>
-        <div id="to-multi-wrap" style="display: none;">
-          <div class="modal-help" style="margin-bottom: 8px;">Select multiple people; each will get the same edge properties.</div>
-          <div class="checkbox-list">
-            ${orderedContacts
-              .map(
-                (c) => `
-              <label class="checkbox-item">
-                <input type="checkbox" name="toIds" value="${c.id}" />
-                <span>${c.displayName}</span>
+        ${
+          editing
+            ? ""
+            : `
+              <label class="tag" style="width: fit-content;">
+                <input type="checkbox" id="edge-batch" /> Create multiple edges
               </label>
+              <div id="to-multi-wrap" style="display: none;">
+                <div class="modal-help" style="margin-bottom: 8px;">Select multiple people; each will get the same edge properties.</div>
+                <div class="checkbox-list">
+                  ${orderedContacts
+                    .map(
+                      (c) => `
+                    <label class="checkbox-item">
+                      <input type="checkbox" name="toIds" value="${c.id}" />
+                      <span>${c.displayName}</span>
+                    </label>
+                  `
+                    )
+                    .join("")}
+                </div>
+              </div>
             `
-              )
-              .join("")}
-          </div>
-        </div>
+        }
         <div class="modal-grid two">
           <label>
             Type
-            <select name="type">
-              ${Validate.edgeTypes.map((type) => `<option value="${type}">${type}</option>`).join("")}
+            <select name="type" id="edge-type">
+              ${Validate.edgeTypes
+                .map((type) => `<option value="${type}" ${type === initialType ? "selected" : ""}>${type}</option>`)
+                .join("")}
             </select>
           </label>
           <label>
             Strength
             <select name="strength">
               ${Validate.edgeStrengths
-                .map((strength) => `<option value="${strength}">${strength}</option>`)
+                .map((strength) => `<option value="${strength}" ${strength === initialStrength ? "selected" : ""}>${strength}</option>`)
                 .join("")}
             </select>
           </label>
         </div>
+        <label id="edge-custom-type-wrap" style="display: ${initialType === "other" ? "grid" : "none"};">
+          Custom Type
+          <input
+            class="input"
+            name="customType"
+            id="edge-custom-type"
+            maxlength="40"
+            list="edge-custom-types"
+            placeholder="e.g. college, love, neighbors"
+            value="${initialCustomType}"
+          />
+          <datalist id="edge-custom-types">
+            ${customTypeSuggestions.map((type) => `<option value="${type}"></option>`).join("")}
+          </datalist>
+        </label>
         <div class="modal-actions">
           <button type="button" class="btn ghost" data-action="close-modal">Cancel</button>
-          <button type="submit" class="btn">Save</button>
+          <button type="submit" class="btn">${editing ? "Update" : "Save"}</button>
         </div>
       </form>
     `);
@@ -1056,7 +1262,21 @@
     const toMultiWrap = document.getElementById("to-multi-wrap");
     const toSingle = document.getElementById("to-single");
     const toMulti = document.querySelectorAll("input[name=\"toIds\"]");
-    if (batchToggle && toMultiWrap && toSingle) {
+    const typeSelect = document.getElementById("edge-type");
+    const customTypeWrap = document.getElementById("edge-custom-type-wrap");
+    const customTypeInput = document.getElementById("edge-custom-type");
+    const updateCustomTypeVisibility = () => {
+      const show = typeSelect?.value === "other";
+      if (!customTypeWrap || !customTypeInput) return;
+      customTypeWrap.style.display = show ? "grid" : "none";
+      customTypeInput.required = show;
+      if (!show) customTypeInput.value = "";
+    };
+    if (typeSelect) {
+      typeSelect.addEventListener("change", updateCustomTypeVisibility);
+      updateCustomTypeVisibility();
+    }
+    if (batchToggle && toMultiWrap && toSingle && !editing) {
       batchToggle.addEventListener("change", () => {
         const on = batchToggle.checked;
         toMultiWrap.style.display = on ? "block" : "none";
@@ -1070,15 +1290,22 @@
         fromId: formData.get("fromId"),
         type: formData.get("type"),
         strength: formData.get("strength"),
+        customType: normalizeEdgeCustomType(formData.get("customType")),
       };
       const contactsById = Object.fromEntries(contacts.map((c) => [c.id, c]));
+      const edgeIdentity = (edge) =>
+        `${[edge.fromId, edge.toId].sort().join("::")}::${edge.type || "knows"}::${normalizeEdgeCustomType(edge.customType).toLowerCase()}`;
 
-      const toIds = batchToggle?.checked
+      const toIds = editing
+        ? [formData.get("toId")]
+        : batchToggle?.checked
         ? Array.from(toMulti || []).filter((input) => input.checked).map((input) => input.value)
         : [formData.get("toId")];
 
       const created = [];
       const skipped = [];
+      const updated = [];
+      const previousIdentity = edgeToEdit ? edgeIdentity(edgeToEdit) : "";
 
       toIds.forEach((toId) => {
         if (!toId) return;
@@ -1089,23 +1316,35 @@
           return;
         }
         const exists = Store.getState().data.edges.some(
-          (edge) =>
-            edge.type === edgePayload.type &&
-            ((edge.fromId === edgePayload.fromId && edge.toId === edgePayload.toId) ||
-              (edge.fromId === edgePayload.toId && edge.toId === edgePayload.fromId))
+          (edge) => edgeIdentity(edge) === edgeIdentity(edgePayload)
         );
-        if (exists) {
+        if (!editing && exists) {
           skipped.push({ toId, reason: "exists" });
           return;
         }
-        Store.addEdge(edgePayload);
-        created.push(edgePayload);
+        if (editing) {
+          if (exists && edgeIdentity(edgePayload) !== previousIdentity) {
+            skipped.push({ toId, reason: "exists" });
+            return;
+          }
+          const ok = Store.updateEdge(edgeToEdit.id, edgePayload);
+          if (ok) {
+            updated.push(edgePayload);
+          } else {
+            skipped.push({ toId, reason: "exists" });
+          }
+          return;
+        }
+        const added = Store.addEdge(edgePayload);
+        created.push(added);
       });
 
-      if (created.length) {
+      if (updated.length) {
+        showToast("Edge updated");
+      } else if (created.length) {
         showToast(created.length > 1 ? `Edges added (${created.length})` : "Edge added");
       } else if (skipped.length) {
-        showToast("No edges created");
+        showToast(editing ? "Edge not updated" : "No edges created");
       }
       closeModal();
     });
@@ -1172,6 +1411,11 @@
 
       if (action === "new-edge") {
         openEdgeModal();
+      }
+
+      if (action === "edit-edge") {
+        const edge = dedupeEdges(state.data.edges).find((item) => item.id === actionEl.dataset.id);
+        if (edge) openEdgeModal(edge);
       }
 
       if (action === "delete-edge") {

@@ -7,6 +7,7 @@
     contacts: [],
     edges: [],
     tags: [],
+    edgeTypeSuggestions: [],
     lastSavedAt: Utils.nowIso(),
   });
 
@@ -14,12 +15,21 @@
     ui: {
       theme: "system",
       compactMode: false,
+      edgeTypeColors: {
+        knows: "#9aa6b2",
+        met: "#7ab6ff",
+        worksWith: "#3dd6a6",
+        family: "#ff7a59",
+        other: "#c68bff",
+      },
     },
     contactsView: {
       sort: "name",
       levelFilter: [],
       tagFilter: [],
       search: "",
+      searchDraft: "",
+      searchLive: false,
     },
     importMode: "merge",
   });
@@ -47,9 +57,18 @@
       return {
         ...defaultSettings(),
         ...parsed,
+        ui: {
+          ...defaultSettings().ui,
+          ...(parsed.ui || {}),
+          edgeTypeColors: {
+            ...defaultSettings().ui.edgeTypeColors,
+            ...(parsed.ui?.edgeTypeColors || {}),
+          },
+        },
         contactsView: {
           ...defaultSettings().contactsView,
           ...(parsed.contactsView || {}),
+          searchDraft: parsed.contactsView?.searchDraft ?? parsed.contactsView?.search ?? "",
         },
       };
     } catch (error) {
